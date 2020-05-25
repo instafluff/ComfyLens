@@ -3,10 +3,12 @@
     <!-- Load TensorFlow.js -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
 	<script src="web/train.js"></script>
+    <script src="web/utility.js"></script>
   </head>
 
   <body>
 	<canvas id="trainCanvas" width="224" height="224"></canvas>
+  	<canvas id="testCanvas" width="224" height="224"></canvas>
 	<script>
 
 	const sampleImages = [
@@ -50,46 +52,129 @@
 			image: "full1.jpg",
 			box: [ 118, 130, 95, 113 ]
 		},
+        {
+            image: "872680.jpg",
+            box: [ 42, 55, 126, 146 ]
+        },
+        {
+            image: "1028023.jpg",
+            box: [ 35, 48, 82, 99 ]
+        },
+        {
+            image: "331092-the-legend-of-zelda-a-link-to-the-past-snes-screenshot-picture.png",
+            box: [ 76, 89, 86, 103 ]
+        },
+        {
+            image: "02536a5e-c41b-46c6-ab62-b31cbca63579.png",
+            box: [ 106, 118, 55, 67 ]
+        },
+        {
+            image: "304_oaa0ek.png",
+            box: [ 179, 190, 133, 151 ]
+        },
+        {
+            image: "link_to_the_past.png",
+            box: [ 105, 119, 73, 92 ]
+        },
+        {
+            image: "unnamed.png",
+            box: [ 105, 119, 40, 58 ]
+        },
+        {
+            image: "images.jpg",
+            box: [ 109, 123, 83, 100 ]
+        },
 	];
 
-	function loadImage( url ) {
-		return new Promise(r => { let i = new Image(); i.onload = (() => r(i)); i.src = url; })
-	}
+    const predictionImages = [
+        {
+            image: "396326-the-legend-of-zelda-a-link-to-the-past-snes-screenshot-about.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "images-1.jpg",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "ALttP_Dark_World_Shield_Shop_Exterior.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "ALttP_Haunted_Grove.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Cave-040.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Blindshideout01.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Cucco_Revenge.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Fatfairyfountain.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Fboy-08.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Great_Zora.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Infow-02.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "RacingGame(ALttP).png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "PondofHappinesswell.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+        {
+            image: "Riddle.png",
+            box: [ 0, 0, 0, 0 ]
+        },
+    ];
 
-  	async function DrawImageToCanvas( canvasId, imageUrl ) {
-		var canvas = document.getElementById( canvasId );
-		if( canvas.getContext ) {
-			ctx = canvas.getContext('2d');
-			let img = await loadImage( imageUrl );
-
-			var hRatio = canvas.width / img.width;
-			var vRatio = canvas.height / img.height;
-			var ratio  = Math.min ( hRatio, vRatio );
-			ctx.clearRect( 0, 0, canvas.width, canvas.height );
-			ctx.drawImage( img, 0,0, img.width, img.height, 0,0,img.width*ratio, img.height*ratio );
-		}
-	}
-
-	async function generateSample( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
-		await DrawImageToCanvas( canvasId, imageUrl );
+    async function generateSample( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
+        let x = Math.floor( Math.random() * 40 - 20 );
+        let y = Math.floor( Math.random() * 40 - 20 );
+        let scale = Math.random() * 0.2 + 0.9;
+		await DrawImageToCanvas( canvasId, imageUrl, { x, y }, scale );
 		var canvas = document.getElementById( canvasId );
 		if( !boundingBox || boundingBox.length === 0 ) {
 			boundingBox = [ 0, canvas.width, 0, canvas.height ];
 		}
-		console.log( boundingBox );
+        boundingBox = [
+            Math.floor( scale * ( boundingBox[ 0 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 1 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 2 ] - y ) ),
+            Math.floor( scale * ( boundingBox[ 3 ] - y ) ),
+        ]
+		// console.log( x, y, scale, boundingBox );
 		return tf.tidy( () => {
 			const imageTensor = tf.browser.fromPixels( canvas );
-			const shapeClassIndicator = isObject ? 1 : 0;
-			const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
+			// const shapeClassIndicator = isObject ? 1 : 0;
+			// const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
+            const targetTensor = tf.tensor1d( boundingBox );
 	      return { image: imageTensor, target: targetTensor };
 	    });
 	}
 
-	async function createTrainingData() {
+	async function createTrainingData( numSamples = 100 ) {
 		const imageTensors = [];
 		const targetTensors = [];
-		for( var i = 0; i < sampleImages.length; i++ ) {
-			var img = sampleImages[ i ];
+		for( var i = 0; i < numSamples; i++ ) {
+			var img = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];
 			const { image, target } = await generateSample( "trainCanvas", `web/sample/${img.image}`, true, img.box );
 			imageTensors.push( image );
 			targetTensors.push( target );
@@ -100,142 +185,330 @@
 		return { images, targets };
 	}
 
-	const TRUE_BOUNDING_BOX_LINE_WIDTH = 2;
-	const TRUE_BOUNDING_BOX_STYLE = 'rgb(255,0,0)';
-	const PREDICT_BOUNDING_BOX_LINE_WIDTH = 2;
-	const PREDICT_BOUNDING_BOX_STYLE = 'rgb(0,0,255)';
-
-	function drawBoundingBoxes(canvas, trueBoundingBox, predictBoundingBox) {
-	  tf.util.assert(
-	      trueBoundingBox != null && trueBoundingBox.length === 4,
-	      `Expected boundingBoxArray to have length 4, ` +
-	          `but got ${trueBoundingBox} instead`);
-	  tf.util.assert(
-	      predictBoundingBox != null && predictBoundingBox.length === 4,
-	      `Expected boundingBoxArray to have length 4, ` +
-	          `but got ${trueBoundingBox} instead`);
-
-	  let left = trueBoundingBox[0];
-	  let right = trueBoundingBox[1];
-	  let top = trueBoundingBox[2];
-	  let bottom = trueBoundingBox[3];
-
-	  const ctx = canvas.getContext('2d');
-	  ctx.beginPath();
-	  ctx.strokeStyle = TRUE_BOUNDING_BOX_STYLE;
-	  ctx.lineWidth = TRUE_BOUNDING_BOX_LINE_WIDTH;
-	  ctx.moveTo(left, top);
-	  ctx.lineTo(right, top);
-	  ctx.lineTo(right, bottom);
-	  ctx.lineTo(left, bottom);
-	  ctx.lineTo(left, top);
-	  ctx.stroke();
-
-	  ctx.font = '15px Arial';
-	  ctx.fillStyle = TRUE_BOUNDING_BOX_STYLE;
-	  ctx.fillText('true', left, top);
-
-	  left = predictBoundingBox[0];
-	  right = predictBoundingBox[1];
-	  top = predictBoundingBox[2];
-	  bottom = predictBoundingBox[3];
-
-	  ctx.beginPath();
-	  ctx.strokeStyle = PREDICT_BOUNDING_BOX_STYLE;
-	  ctx.lineWidth = PREDICT_BOUNDING_BOX_LINE_WIDTH;
-	  ctx.moveTo(left, top);
-	  ctx.lineTo(right, top);
-	  ctx.lineTo(right, bottom);
-	  ctx.lineTo(left, bottom);
-	  ctx.lineTo(left, top);
-	  ctx.stroke();
-
-	  ctx.font = '15px Arial';
-	  ctx.fillStyle = PREDICT_BOUNDING_BOX_STYLE;
-	  ctx.fillText('predicted', left, bottom);
+	async function generateSamplePlus( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
+        let x = Math.floor( Math.random() * 40 - 20 );
+        let y = Math.floor( Math.random() * 40 - 20 );
+        let scale = Math.random() * 0.2 + 0.9;
+		await DrawImageToCanvas( canvasId, imageUrl, { x, y }, scale );
+		var canvas = document.getElementById( canvasId );
+		if( !boundingBox || boundingBox.length === 0 ) {
+			boundingBox = [ 0, canvas.width, 0, canvas.height ];
+		}
+        boundingBox = [
+            Math.floor( scale * ( boundingBox[ 0 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 1 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 2 ] - y ) ),
+            Math.floor( scale * ( boundingBox[ 3 ] - y ) ),
+        ]
+		// console.log( x, y, scale, boundingBox );
+		return tf.tidy( () => {
+			const imageTensor = tf.browser.fromPixels( canvas );
+			const shapeClassIndicator = isObject ? 1 : 0;
+			const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
+	      return { image: imageTensor, target: targetTensor };
+	    });
 	}
 
-	(async () => {
-		const {model, fineTuningLayers} = await buildObjectDetectionModel();
-		model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
-		// model.summary();
+	async function createTrainingDataPlus( numSamples = 100 ) {
+		const imageTensors = [];
+		const targetTensors = [];
+		for( var i = 0; i < numSamples; i++ ) {
+			var img = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];
+			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${img.image}`, true, img.box );
+			imageTensors.push( image );
+			targetTensors.push( target );
+		}
+		const images = tf.stack( imageTensors );
+		const targets = tf.stack( targetTensors );
+		tf.dispose( [ imageTensors, targetTensors ] );
+		return { images, targets };
+	}
 
-		// setTimeout( async () => {
-		// 	let sampleImage = sampleImages[ 9 ];
-		// 	const { image, target } = await generateSample( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
-		// 	var testImage = tf.stack( [ image ] );
-		// 	const modelOut = await model.predict( testImage ).data();
-		// 	setTimeout( () => {
-		// 		var canvas = document.getElementById( "trainCanvas" );
-		// 		drawBoundingBoxes( canvas, sampleImage.box, modelOut.slice(1) );
-		// 	}, 1000 );
-		// }, 500 );
-		// return;
+    // Custom Model
+    async function trainCustom() {
+        const model = tf.sequential();
+        model.add( tf.layers.conv2d({
+            inputShape: [ 224, 224, 3 ], // RGB on 224x224
+            kernelSize: 3,
+            filters: 32,
+            strides: 1,
+            activation: "relu",
+            kernelInitializer: "varianceScaling"
+        }));
+        // model.add( tf.layers.batchNormalization());
+        // model.add( tf.layers.activation({
+        //     activation: "relu",
+        // }));
+        model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
+        model.add( tf.layers.depthwiseConv2d({
+            kernelSize: 3,
+            strides: 1,
+            activation: "relu",
+            kernelInitializer: "varianceScaling"
+        }));
+        // model.add( tf.layers.batchNormalization());
+        // model.add( tf.layers.activation({
+        //     activation: "relu",
+        // }));
+        // model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
+        // model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
+        // model.add( tf.layers.conv2d({
+        //     kernelSize: 4,
+        //     filters: 16,
+        //     strides: 1,
+        //     activation: "relu",
+        //     kernelInitializer: "varianceScaling"
+        // }));
+        // model.add(tf.layers.maxPooling2d({poolSize: [2, 2], strides: [2, 2]}));
+        // model.add( tf.layers.conv2d({
+        //     kernelSize: 4,
+        //     filters: 32,
+        //     strides: 1,
+        //     activation: "relu",
+        //     kernelInitializer: "varianceScaling"
+        // }));
+        model.add(tf.layers.maxPooling2d({poolSize: [2, 2], strides: [2, 2]}));
+        model.add(tf.layers.flatten());
+        // model.add(tf.layers.dense({units: 64, activation: 'relu'}));
+        model.add(tf.layers.dense({units: 32, activation: 'relu'}));
+        model.add(tf.layers.dense({units: 16, activation: 'relu'}));
+        model.add(tf.layers.dense({ units: 4 })); // Output our detected rect
+		// model.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 5e-3 ) } );
+        model.compile( { loss: "meanSquaredError", optimizer: tf.train.adam( 0.001 ) } );
+        model.summary();
 
-		const { images, targets } = await createTrainingData();
+		const { images, targets } = await createTrainingData( 1000 );
 
-		// Initial phase of transfer learning.
-	    console.log('Phase 1 of 2: initial transfer learning');
+        console.log('Training: broad phase');
 	    await model.fit( images, targets, {
-			epochs: 1000,
-			batchSize: 128,
+			epochs: 20,
+			batchSize: 16,
 			validationSplit: 0.15,
+            shuffle: true,
 			callbacks: {
 				onBatchEnd: ( batch, logs ) => {
-					console.log( batch, logs );
+					console.log( "Batch #", batch, logs );
+				},
+				onEpochEnd: ( epoch, logs ) => {
+					console.log( "Epoch #", epoch, logs );
 				}
 			}
 	    });
 
-		// Fine-tuning phase of transfer learning.
-	    // Unfreeze layers for fine-tuning.
-	    for (const layer of fineTuningLayers) {
-	      layer.trainable = true;
-	    }
-	    model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(2e-3)});
-	    // model.summary();
+        // model.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 2e-3 ) } );
+	    // // model.summary();
+        //
+		// console.log('Training: fine-tuning phase');
+	    // await model.fit( images, targets, {
+	    //   epochs: 50,
+	    //   batchSize: 32 / 2,
+	    //   validationSplit: 0.15,
+        //   shuffle: true,
+	    //   callbacks: {
+        //       onBatchEnd: ( batch, logs ) => {
+        //           console.log( "Batch #", batch, logs );
+        //       },
+		// 	  onEpochEnd: ( epoch, logs ) => {
+        //           console.log( "Epoch #", epoch, logs );
+		// 	  }
+		//   }
+	    // });
 
-		console.log('Phase 2 of 2: fine-tuning phase');
-	    await model.fit(images, targets, {
-	      epochs: 1000,
-	      batchSize: 128 / 2,
-	      validationSplit: 0.15,
-	      callbacks: {
-			  onBatchEnd: ( batch, logs ) => {
-				  console.log( batch, logs );
-			  }
-		  }
+        console.log( "DONE!" );
+
+        const saveResult = await model.save( "downloads://comfylens" );
+        console.log( saveResult );
+
+        let combinedTest = predictionImages.concat( sampleImages );
+
+        for( var i = 0; i < 100; i++ ) {
+    		setTimeout( async () => {
+    			let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+    			const { image, target } = await generateSample( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
+    			var testImage = tf.stack( [ image ] );
+    			const modelOut = await model.predict( testImage ).data();
+                console.log( modelOut );
+    			setTimeout( () => {
+    				var canvas = document.getElementById( "trainCanvas" );
+    				drawBoundingBoxes( canvas, target.arraySync(), modelOut );
+    			}, 1000 );
+    		}, 5000 * ( i + 1 ) );
+        }
+    }
+
+    // Transfer-Learned Model
+	async function trainModel() {
+		const { model, fineTuningLayers } = await buildObjectDetectionModel();
+		// model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
+        model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+        // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(5e-3)});
+		model.summary();
+
+        // for( var i = 0; i < 100; i++ ) {
+    	// 	setTimeout( async () => {
+    	// 		let sampleImage = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+    	// 		const { image, target } = await generateSample( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
+    	// 		var testImage = tf.stack( [ image ] );
+    	// 		const modelOut = await model.predict( testImage ).data();
+    	// 		setTimeout( () => {
+    	// 			var canvas = document.getElementById( "trainCanvas" );
+    	// 			drawBoundingBoxes( canvas, sampleImage.box, modelOut.slice(1) );
+    	// 		}, 1000 );
+    	// 	}, 5000 * i );
+        // }
+        // return;
+
+		const { images, targets } = await createTrainingDataPlus( 1000 );
+        //
+        // var test = 9;
+        // let data = await generateSample( "trainCanvas", `web/sample/${sampleImages[ test ].image}`, true, sampleImages[ test ].box );
+        // var canvas = document.getElementById( "testCanvas" );
+        // let array = tf.unstack( images );
+        // await tf.browser.toPixels( data.image, canvas ); // array[ test ], canvas );
+        // console.log( data.target.arraySync() );
+        // drawBoundingBoxes( canvas, data.target.arraySync().slice(1), [ 0, 0, 0, 0 ] );
+        //
+        // return;
+
+		// Initial phase of transfer learning.
+	    console.log('Phase 1 of 2: initial transfer learning');
+	    await model.fit( images, targets, {
+			epochs: 20,
+			batchSize: 16,
+			validationSplit: 0.15,
+            shuffle: true,
+			callbacks: {
+				onBatchEnd: ( batch, logs ) => {
+					console.log( "Batch #", batch, logs );
+				},
+				onEpochEnd: ( epoch, logs ) => {
+					console.log( "Epoch #", epoch, logs );
+				}
+			}
 	    });
+
+		// // Fine-tuning phase of transfer learning.
+	    // // Unfreeze layers for fine-tuning.
+	    // for( const layer of fineTuningLayers ) {
+        //     layer.trainable = true;
+	    // }
+	    // // model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(2e-3)});
+        // model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+        // // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(2e-3)});
+	    // // model.summary();
+        //
+		// console.log('Phase 2 of 2: fine-tuning phase');
+	    // await model.fit( images, targets, {
+	    //   epochs: 10,
+	    //   batchSize: 16 / 2,
+	    //   validationSplit: 0.15,
+        //   shuffle: true,
+	    //   callbacks: {
+        //       onBatchEnd: ( batch, logs ) => {
+        //           console.log( "Batch #", batch, logs );
+        //       },
+		// 	  onEpochEnd: ( epoch, logs ) => {
+        //           console.log( "Epoch #", epoch, logs );
+		// 	  }
+		//   }
+	    // });
 
 		console.log( "DONE!" );
 
-		setTimeout( async () => {
-			let sampleImage = sampleImages[ 8 ];
-			const { image, target } = await generateSample( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
-			var testImage = tf.stack( [ image ] );
-			const modelOut = await model.predict( testImage ).data();
-			setTimeout( () => {
-				var canvas = document.getElementById( "trainCanvas" );
-				drawBoundingBoxes( canvas, sampleImage.box, modelOut.slice(1) );
-			}, 1000 );
-		}, 1000 );
+        const saveResult = await model.save( "downloads://comfylens" );
+        console.log( saveResult );
+  	  }
 
-          // // Define a model for linear regression.
-          // const model = tf.sequential();
-          // model.add(tf.layers.dense({units: 1, inputShape: [1]}));
-  		//
-          // // Prepare the model for training: Specify the loss and the optimizer.
-          // model.compile({loss: 'meanSquaredError', optimizer: 'sgd'});
-  		// model.summary();
-  		//
-          // // Generate some synthetic data for training.
-          // const xs = tf.tensor2d([1, 2, 3, 4], [4, 1]);
-          // const ys = tf.tensor2d([1, 3, 5, 7], [4, 1]);
-  		//
-          // // Train the model using the data.
-          // let result = await model.fit(xs, ys);
-  		// model.predict(tf.tensor2d([5], [1, 1])).print();
-  	  })();
-      </script>
+    // Improve transfer-learned model
+    async function improveModel() {
+        console.log( "Loading Model" );
+        const model = await tf.loadLayersModel('web/models/comfylens.json');
+  		const { fineTuningLayers } = await buildObjectDetectionModel();
+
+  		// model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
+        model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+        // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(5e-3)});
+  		model.summary();
+
+  		const { images, targets } = await createTrainingDataPlus( 1000 );
+
+  		// Initial phase of transfer learning.
+  	    console.log('Additional transfer learning');
+  	    await model.fit( images, targets, {
+  			epochs: 20,
+  			batchSize: 16,
+  			validationSplit: 0.15,
+              shuffle: true,
+  			callbacks: {
+  				onBatchEnd: ( batch, logs ) => {
+  					console.log( "Batch #", batch, logs );
+  				},
+  				onEpochEnd: ( epoch, logs ) => {
+  					console.log( "Epoch #", epoch, logs );
+  				}
+  			}
+  	    });
+
+  		// // Fine-tuning phase of transfer learning.
+  	    // // Unfreeze layers for fine-tuning.
+  	    // for( const layer of fineTuningLayers ) {
+          //     layer.trainable = true;
+  	    // }
+  	    // // model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(2e-3)});
+          // model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+          // // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(2e-3)});
+  	    // // model.summary();
+          //
+  		// console.log('Phase 2 of 2: fine-tuning phase');
+  	    // await model.fit( images, targets, {
+  	    //   epochs: 10,
+  	    //   batchSize: 16 / 2,
+  	    //   validationSplit: 0.15,
+          //   shuffle: true,
+  	    //   callbacks: {
+          //       onBatchEnd: ( batch, logs ) => {
+          //           console.log( "Batch #", batch, logs );
+          //       },
+  		// 	  onEpochEnd: ( epoch, logs ) => {
+          //           console.log( "Epoch #", epoch, logs );
+  		// 	  }
+  		//   }
+  	    // });
+
+  		console.log( "DONE!" );
+
+        const saveResult = await model.save( "downloads://comfylens" );
+        console.log( saveResult );
+    }
+
+    // Run Saved Model
+    async function runModel() {
+        console.log( "Loading Model" );
+        const model = await tf.loadLayersModel('web/models/comfylens.json');
+
+        let combinedTest = predictionImages;//.concat( sampleImages );
+
+        for( var i = 0; i < 1000; i++ ) {
+      		setTimeout( async () => {
+      			let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+      			const { image, target } = await generateSample( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
+      			var testImage = tf.stack( [ image ] );
+      			const modelOut = await model.predict( testImage ).data();
+                  console.log( modelOut.slice(1) );
+      			setTimeout( () => {
+      				var canvas = document.getElementById( "trainCanvas" );
+      				drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+      			}, 1000 );
+      		}, 5000 * i );
+        }
+    }
+
+    (async () => {
+        await trainCustom();
+        // await trainModel();
+        // await improveModel();
+        // await runModel();
+    })();
+    </script>
   </body>
 </html>

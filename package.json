@@ -38,8 +38,5 @@
     "node-fetch": "^2.6.0",
     "webwebweb": "^1.3.2"
   },
-  "devDependencies": {
-    "@tensorflow/tfjs-node": "^1.7.4",
-    "@tensorflow/tfjs-node-gpu": "^1.7.4"
-  }
+  "devDependencies": {}
 }
