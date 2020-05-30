@@ -112,7 +112,7 @@
             box: [ 0, 0, 0, 0 ]
         },
         {
-            image: "Cucco_Revenge.png",
+            image: "Cucco_Revenge.jpg",
             box: [ 0, 0, 0, 0 ]
         },
         {
@@ -146,8 +146,8 @@
     ];
 
     async function generateSample( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
-        let x = Math.floor( Math.random() * 40 - 20 );
-        let y = Math.floor( Math.random() * 40 - 20 );
+        let x = Math.floor( Math.random() * 50 - 25 );
+        let y = Math.floor( Math.random() * 50 - 25 );
         let scale = Math.random() * 0.2 + 0.9;
 		await DrawImageToCanvas( canvasId, imageUrl, { x, y }, scale );
 		var canvas = document.getElementById( canvasId );
@@ -230,7 +230,7 @@
         model.add( tf.layers.conv2d({
             inputShape: [ 224, 224, 3 ], // RGB on 224x224
             kernelSize: 3,
-            filters: 32,
+            filters: 64,
             strides: 1,
             activation: "relu",
             kernelInitializer: "varianceScaling"
@@ -240,51 +240,44 @@
         //     activation: "relu",
         // }));
         model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
-        model.add( tf.layers.depthwiseConv2d({
-            kernelSize: 3,
-            strides: 1,
-            activation: "relu",
-            kernelInitializer: "varianceScaling"
-        }));
-        // model.add( tf.layers.batchNormalization());
-        // model.add( tf.layers.activation({
-        //     activation: "relu",
-        // }));
-        // model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
-        // model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
-        // model.add( tf.layers.conv2d({
-        //     kernelSize: 4,
-        //     filters: 16,
-        //     strides: 1,
-        //     activation: "relu",
-        //     kernelInitializer: "varianceScaling"
-        // }));
-        // model.add(tf.layers.maxPooling2d({poolSize: [2, 2], strides: [2, 2]}));
-        // model.add( tf.layers.conv2d({
-        //     kernelSize: 4,
-        //     filters: 32,
-        //     strides: 1,
-        //     activation: "relu",
-        //     kernelInitializer: "varianceScaling"
-        // }));
-        model.add(tf.layers.maxPooling2d({poolSize: [2, 2], strides: [2, 2]}));
+		for( var i = 0; i < 4; i++ ) {
+			model.add( tf.layers.conv2d({
+	            kernelSize: 3,
+	            filters: 32,
+	            strides: 1,
+	            activation: "relu",
+	            kernelInitializer: "varianceScaling"
+	        }));
+	        // model.add( tf.layers.depthwiseConv2d({
+	        //     kernelSize: 3,
+	        //     strides: 1,
+	        //     activation: "relu",
+	        //     kernelInitializer: "varianceScaling"
+	        // }));
+			model.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
+		}
+		// model.add(tf.layers.flatten({
+		// 	inputShape: [ 224, 224, 3 ], // RGB on 224x224
+		// }));
         model.add(tf.layers.flatten());
-        // model.add(tf.layers.dense({units: 64, activation: 'relu'}));
+		// model.add(tf.layers.dense({units: 128, activation: 'relu'}));
+        model.add(tf.layers.dense({units: 64, activation: 'relu'}));
         model.add(tf.layers.dense({units: 32, activation: 'relu'}));
         model.add(tf.layers.dense({units: 16, activation: 'relu'}));
         model.add(tf.layers.dense({ units: 4 })); // Output our detected rect
-		// model.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 5e-3 ) } );
-        model.compile( { loss: "meanSquaredError", optimizer: tf.train.adam( 0.001 ) } );
+		// model.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 5e-3 ), metrics: ['acc'] } );
+        model.compile( { loss: "meanSquaredError", optimizer: tf.train.adam( 0.001 ) } );//, metrics: ['acc'] } );
         model.summary();
 
-		const { images, targets } = await createTrainingData( 1000 );
+		const { images, targets } = await createTrainingData( 200 );
 
         console.log('Training: broad phase');
 	    await model.fit( images, targets, {
-			epochs: 20,
-			batchSize: 16,
-			validationSplit: 0.15,
+			epochs: 32,
+			batchSize: 4,
+			validationSplit: 0.5,
             shuffle: true,
+			// callbacks: tf.callbacks.earlyStopping({monitor: 'val_acc'}),
 			callbacks: {
 				onBatchEnd: ( batch, logs ) => {
 					console.log( "Batch #", batch, logs );
@@ -316,8 +309,8 @@
 
         console.log( "DONE!" );
 
-        const saveResult = await model.save( "downloads://comfylens" );
-        console.log( saveResult );
+        // const saveResult = await model.save( "downloads://comfylens" );
+        // console.log( saveResult );
 
         let combinedTest = predictionImages.concat( sampleImages );
 
@@ -358,7 +351,7 @@
         // }
         // return;
 
-		const { images, targets } = await createTrainingDataPlus( 1000 );
+		const { images, targets } = await createTrainingDataPlus( 100 );
         //
         // var test = 9;
         // let data = await generateSample( "trainCanvas", `web/sample/${sampleImages[ test ].image}`, true, sampleImages[ test ].box );
@@ -373,7 +366,7 @@
 		// Initial phase of transfer learning.
 	    console.log('Phase 1 of 2: initial transfer learning');
 	    await model.fit( images, targets, {
-			epochs: 20,
+			epochs: 200,
 			batchSize: 16,
 			validationSplit: 0.15,
             shuffle: true,
@@ -430,12 +423,12 @@
         // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(5e-3)});
   		model.summary();
 
-  		const { images, targets } = await createTrainingDataPlus( 1000 );
+  		const { images, targets } = await createTrainingDataPlus( 100 );
 
   		// Initial phase of transfer learning.
   	    console.log('Additional transfer learning');
   	    await model.fit( images, targets, {
-  			epochs: 20,
+  			epochs: 100,
   			batchSize: 16,
   			validationSplit: 0.15,
               shuffle: true,
