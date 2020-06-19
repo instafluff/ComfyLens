@@ -1,0 +1,274 @@
+<html>
+  <head>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
+	<script src="web/train.js"></script>
+    <script src="web/utility.js"></script>
+  </head>
+
+  <body>
+	<canvas id="trainCanvas" width="224" height="224"></canvas>
+  	<canvas id="testCanvas" width="224" height="224"></canvas>
+	<script>
+
+	var sampleImages = null;
+	var predictionImages = null;
+
+	async function generateSamplePlus( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
+		if( !boundingBox || boundingBox.length === 0 ) {
+			boundingBox = [ 0, 0, 0, 0 ];
+		}
+        let x = 0;//Math.floor( Math.random() * 50 - 25 );
+        let y = 0;//Math.floor( Math.random() * 50 - 25 );
+        let scale = 1;//Math.random() * 0.2 + 0.9;
+
+		// Move the box randomly inside the image
+		let bWidth = boundingBox[ 1 ] - boundingBox[ 0 ];
+		let bHeight = boundingBox[ 3 ] - boundingBox[ 2 ];
+		x = Math.floor( Math.random() * ( 224 - bWidth ) );
+		y = Math.floor( Math.random() * ( 224 - bHeight ) );
+		await DrawImageToCanvas(
+			canvasId, imageUrl,
+			{
+				x: boundingBox[ 0 ] - x,
+				y: boundingBox[ 2 ] - y
+			},
+			scale
+		);
+		var canvas = document.getElementById( canvasId );
+        let newBoundingBox = [
+            // Math.floor( scale * ( boundingBox[ 0 ] - x ) ),
+            // Math.floor( scale * ( boundingBox[ 1 ] - x ) ),
+            // Math.floor( scale * ( boundingBox[ 2 ] - y ) ),
+            // Math.floor( scale * ( boundingBox[ 3 ] - y ) ),
+			x,
+			x + bWidth,
+			y,
+			y + bHeight
+        ];
+		// console.log( x, y, scale, boundingBox );
+		return tf.tidy( () => {
+            const img = tf.browser.fromPixels( canvas ).toFloat();
+            const imageTensor = img.div( 127 ).sub( 1 );
+			const shapeClassIndicator = isObject ? 1 : 0;
+			// const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
+			const targetTensor = tf.tensor1d( newBoundingBox );
+	      return { image: imageTensor, target: targetTensor };
+	    });
+	}
+
+	async function createTrainingDataPlus( numSamples = 100 ) {
+		const imageTensors = [];
+		const targetTensors = [];
+		for( var i = 0; i < numSamples; i++ ) {
+			var img = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];
+			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${img.image}`, !!img.noLink, img.box );
+			imageTensors.push( image );
+			targetTensors.push( target );
+		}
+		const images = tf.stack( imageTensors );
+		const targets = tf.stack( targetTensors );
+		tf.dispose( [ imageTensors, targetTensors ] );
+		return { images, targets };
+	}
+
+    // Transfer-Learned Model
+	async function trainModel() {
+		// for( var i = 0; i < 100; i++ ) {
+		// 	setTimeout( async () => {
+		// 		let sampleImage = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+		// 		const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
+		// 		var testImage = tf.stack( [ image ] );
+		// 		var canvas = document.getElementById( "trainCanvas" );
+		// 		// drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+		// 		drawBoundingBoxes( canvas, target.arraySync(), [ 0, 0, 0, 0 ] );
+		// 		tf.dispose( [ image, target, testImage ] );
+		// 	}, 5000 * ( i + 1 ) );
+		// }
+		// return;
+
+		let mobilenet = await tf.loadLayersModel(
+  	      'https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
+		mobilenet.summary();
+		const bottleneck = mobilenet.getLayer( "conv_pw_13_relu" );
+		// const bottleneck = mobilenet.getLayer( "dropout" );
+  		const baseModel = tf.model({
+  		    inputs: mobilenet.inputs,
+  		    outputs: bottleneck.output
+  		});
+  		// Freeze the convolutional base
+  		for( const layer of baseModel.layers ) {
+  		    layer.trainable = false;
+  		}
+  		// Add a classification head
+  		const newHead = tf.sequential();
+  		// newHead.add( tf.layers.globalAveragePooling2d( {
+  		//     inputShape: baseModel.outputs[ 0 ].shape.slice( 1 )
+  		// } ) );
+		// newHead.add( tf.layers.reshape( {
+		// 	targetShape: [ 1, 1, 256 ]
+		// } ) );
+		// newHead.add( tf.layers.dropout( {
+		// 	inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ),
+		// 	rate: 0.5
+		// } ) );
+		newHead.add( tf.layers.separableConv2d( {
+			inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ),
+			filters: 100,
+			kernelSize: 1,
+			strides: 1,
+			name: "conv_preds",
+			activation: "relu"
+		} ) );
+		// newHead.add( tf.layers.reLU() );
+  		// newHead.add( tf.layers.globalMaxPooling2d( {
+  		//     inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ),
+		// 	poolSize: [ 2, 2 ],
+  		// 	strides: [ 2, 2 ]
+  		// } ) );
+  		// newHead.add( tf.layers.maxPooling2d( {
+  		// 	inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ),
+  		// 	poolSize: [ 2, 2 ],
+  		// 	strides: [ 2, 2 ]
+  		// } ) );
+		// newHead.add( tf.layers.separableConv2d({
+		// 	inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ),
+		// 	kernelSize: 3,
+		// 	filters: 64,
+		// 	strides: 1,
+		// 	activation: "relu",
+		// 	// kernelInitializer: "varianceScaling"
+		// }));
+		newHead.add( tf.layers.maxPooling2d( { poolSize: [ 2, 2 ], strides: [ 2, 2 ] } ) );
+		// newHead.add( tf.layers.dropout( {
+		// 	rate: 0.5
+		// } ) );
+  		// newHead.add( tf.layers.flatten( { inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ) } ) );
+  		newHead.add( tf.layers.flatten() );
+		// newHead.add( tf.layers.dense( { units: 100, inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ) } ) );
+		newHead.add( tf.layers.dense( { units: 100, activation: "relu" } ) );
+  		newHead.add( tf.layers.dense( { units: 100, activation: 'relu' } ) );
+  		newHead.add( tf.layers.dense( { units: 10, activation: 'relu' } ) );
+  		// newHead.add( tf.layers.dense( { units: 200, activation: "relu" } ) );
+  		// newHead.add( tf.layers.dense( { units: 128, activation: 'relu' } ) );
+  		// newHead.add( tf.layers.dense( { units: 64, activation: 'relu' } ) );
+  		// newHead.add( tf.layers.dense( { units: 32, activation: 'relu' } ) );
+  		// newHead.add( tf.layers.dense( { units: 16, activation: 'relu' } ) );
+  		newHead.add( tf.layers.dense( {
+			units: 4,
+			kernelInitializer: 'varianceScaling',
+			useBias: false,
+		} ) );
+  		// newHead.add( tf.layers.dense( { units: 1, activation: "softmax" } ) );
+		newHead.summary();
+  		// Build the new model
+  		const newOutput = newHead.apply( baseModel.outputs[ 0 ] );
+  		const newModel = tf.model( { inputs: baseModel.inputs, outputs: newOutput } );
+  		// newModel.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 0.0001 ), metrics: [ "acc" ] } );
+  		// newModel.compile( { loss: "meanSquaredError", optimizer: "adam", metrics: [ "acc" ] } );
+  		// newModel.summary();
+  		model = newModel;
+
+		// model.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 5e-3 ) } );
+		model.compile( { loss: "meanSquaredError", optimizer: "adam" } );// tf.train.adam( 0.001 )});
+		model.summary();
+
+		const { images, targets } = await createTrainingDataPlus( 100 );
+
+		// Initial phase of transfer learning.
+	    console.log( "Train New Model" );
+	    await model.fit( images, targets, {
+			epochs: 100,
+			// batchSize: 4,
+			validationSplit: 0.15,
+            shuffle: true,
+			callbacks: {
+				// onBatchEnd: ( batch, logs ) => {
+				// 	console.log( "Batch #", batch, logs );
+				// },
+				onEpochEnd: ( epoch, logs ) => {
+					console.log( "Epoch #", epoch, logs );
+				}
+			}
+	    });
+
+		tf.dispose( [ images, targets ] );
+
+		console.log( "DONE!" );
+
+		// let combinedTest = predictionImages.concat( sampleImages );
+		//
+        // for( var i = 0; i < 100; i++ ) {
+    	// 	setTimeout( async () => {
+    	// 		let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+    	// 		const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
+    	// 		var testImage = tf.stack( [ image ] );
+    	// 		const modelOut = await model.predict( testImage ).data();
+        //         console.log( modelOut );
+		// 		var canvas = document.getElementById( "trainCanvas" );
+		// 		// drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+		// 		drawBoundingBoxes( canvas, target.arraySync(), modelOut );
+		// 		tf.dispose( [ image, target, testImage ] );
+    	// 	}, 5000 * ( i + 1 ) );
+        // }
+
+        const saveResult = await model.save( "http://localhost:52220/savemodel" );
+        console.log( saveResult );
+        // const saveResult = await model.save( "downloads://comfylens" );
+        // console.log( saveResult );
+  	  }
+
+    // Improve transfer-learned model
+    async function improveModel( numIterations = 100 ) {
+        console.log( "Loading Model" );
+        const model = await tf.loadLayersModel( 'web/models/model.json' );
+
+  		// model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
+        // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(5e-3)});
+		// model.compile( { loss: customLossFunction, optimizer: "adam" } );
+		// model.compile( { loss: "meanSquaredError", optimizer: "adam" } );
+  		model.summary();
+
+		for( let i = 0; i < numIterations; i++ ) {
+	  		let { images, targets } = await createTrainingDataPlus( 100 );
+
+	  		// Initial phase of transfer learning.
+	  	    console.log( 'Transfer Learning #' + (i + 1) );
+			// model.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 5e-3 ) } );
+			model.compile( { loss: "meanSquaredError", optimizer: "adam" } );
+	  	    await model.fit( images, targets, {
+	  			epochs: 100,
+	  			// batchSize: 4,
+	  			validationSplit: 0.15,
+	            shuffle: true,
+	  			callbacks: {
+	  				// onBatchEnd: ( batch, logs ) => {
+	  				// 	console.log( "Batch #", batch, logs );
+	  				// },
+	  				onEpochEnd: ( epoch, logs ) => {
+	  					console.log( "Epoch #", epoch, logs );
+	  				}
+	  			}
+	  	    });
+
+			tf.dispose( [ images, targets ] );
+
+	  		console.log( "DONE!" );
+
+	        const saveResult = await model.save( "http://localhost:52220/savemodel" );
+	        console.log( saveResult );
+		}
+    }
+
+    (async () => {
+		sampleImages = ( await fetch( "/samples" ).then( r => r.json() ) ).filter( x => !x.noLink ).sort( () => 0.5 - Math.random() );
+		// sampleImages = ( await fetch( "/samples" ).then( r => r.json() ) ).sort( () => 0.5 - Math.random() );
+		predictionImages = await fetch( "/untagged" ).then( r => r.json() );
+		predictionImages = predictionImages.map( x => ({ image: x, box: [ 0, 0, 0, 0 ] } ) );
+        await trainModel();
+        await improveModel();
+		// location.reload();
+    })();
+    </script>
+  </body>
+</html>

@@ -21,16 +21,18 @@ function customLossFunction(yTrue, yPred) {
   });
 }
 
-async function loadTruncatedBase() {
+async function loadTruncatedBase( mobilenet = null ) {
   // TODO(cais): Add unit test.
-  const mobilenet = await tf.loadLayersModel(
-      'https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
+  if( mobilenet === null ) {
+	  mobilenet = await tf.loadLayersModel(
+	      'https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
+  }
 
   // Return a model that outputs an internal activation.
   const fineTuningLayers = [];
-  const layer = mobilenet.getLayer(topLayerName);
+  const topLayer = mobilenet.getLayer(topLayerName);
   const truncatedBase =
-      tf.model({inputs: mobilenet.inputs, outputs: layer.output});
+      tf.model({inputs: mobilenet.inputs, outputs: topLayer.output});
   // Freeze the model's layers.
   for (const layer of truncatedBase.layers) {
     layer.trainable = false;
@@ -52,6 +54,10 @@ function buildNewHead(inputShape) {
   const newHead = tf.sequential();
   newHead.add(tf.layers.flatten({inputShape}));
   newHead.add(tf.layers.dense({units: 200, activation: 'relu'}));
+  newHead.add(tf.layers.dense({units: 128, activation: 'relu'}));
+  newHead.add(tf.layers.dense({units: 64, activation: 'relu'}));
+  newHead.add(tf.layers.dense({units: 32, activation: 'relu'}));
+  newHead.add(tf.layers.dense({units: 16, activation: 'relu'}));
   // Five output units:
   //   - The first is a shape indictor: predicts whether the target
   //     shape is a triangle or a rectangle.
@@ -61,13 +67,63 @@ function buildNewHead(inputShape) {
   return newHead;
 }
 
-async function buildObjectDetectionModel() {
-  const {truncatedBase, fineTuningLayers} = await loadTruncatedBase();
+async function buildObjectDetectionModel( prevModel = null ) {
+  const {truncatedBase, fineTuningLayers} = await loadTruncatedBase( prevModel );
 
-  // Build the new head model.
-  const newHead = buildNewHead(truncatedBase.outputs[0].shape.slice(1));
-  const newOutput = newHead.apply(truncatedBase.outputs[0]);
-  const model = tf.model({inputs: truncatedBase.inputs, outputs: newOutput});
+  let model = prevModel;
+  if( prevModel === null ) {
+      // Build the new head model.
+      // const newHead = buildNewHead(truncatedBase.outputs[0].shape.slice(1));
+      // const newOutput = newHead.apply(truncatedBase.outputs[0]);
+      // model = tf.model({inputs: truncatedBase.inputs, outputs: newOutput});
+	  let mobilenet = await tf.loadLayersModel(
+	      'https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json');
+
+	  const bottleneck = mobilenet.getLayer( "conv_pw_13_relu" );
+		const baseModel = tf.model({
+		    inputs: mobilenet.inputs,
+		    outputs: bottleneck.output
+		});
+		// Freeze the convolutional base
+		for( const layer of baseModel.layers ) {
+		    layer.trainable = false;
+		}
+		// Add a classification head
+		const newHead = tf.sequential();
+		// newHead.add( tf.layers.globalAveragePooling2d( {
+		//     inputShape: baseModel.outputs[ 0 ].shape.slice( 1 )
+		// } ) );
+		// newHead.add( tf.layers.globalMaxPooling2d( {
+		//     inputShape: baseModel.outputs[ 0 ].shape.slice( 1 )
+		// } ) );
+		// newHead.add( tf.layers.maxPooling2d( {
+		// 	inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ),
+		// 	poolSize: [ 2, 2 ],
+		// 	strides: [ 2, 2 ]
+		// } ) );
+		newHead.add( tf.layers.flatten( { inputShape: baseModel.outputs[ 0 ].shape.slice( 1 ) } ) );
+		// newHead.add( tf.layers.flatten() );
+		newHead.add( tf.layers.dense( { units: 200, activation: "relu" } ) );
+		newHead.add( tf.layers.dense( { units: 128, activation: 'relu' } ) );
+		newHead.add( tf.layers.dense( { units: 64, activation: 'relu' } ) );
+		// newHead.add( tf.layers.dense( { units: 32, activation: 'relu' } ) );
+		// newHead.add( tf.layers.dense( { units: 16, activation: 'relu' } ) );
+		newHead.add( tf.layers.dense( { units: 5 } ) );
+		// newHead.add( tf.layers.dense( { units: 1, activation: "softmax" } ) );
+		// Build the new model
+		const newOutput = newHead.apply( baseModel.outputs[ 0 ] );
+		const newModel = tf.model( { inputs: baseModel.inputs, outputs: newOutput } );
+		// newModel.compile( { loss: "meanSquaredError", optimizer: tf.train.rmsprop( 0.0001 ), metrics: [ "acc" ] } );
+		// newModel.compile( { loss: "meanSquaredError", optimizer: "adam", metrics: [ "acc" ] } );
+		// newModel.summary();
+		model = newModel;
+  }
+  // else {
+	//   // Freeze the model's layers.
+	//   for (const layer of model.layers) {
+	//     layer.trainable = false;
+	//   }
+  // }
 
   return {model, fineTuningLayers};
 }

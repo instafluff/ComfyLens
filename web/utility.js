@@ -24,15 +24,21 @@ const TRUE_BOUNDING_BOX_STYLE = 'rgb(255,0,0)';
 const PREDICT_BOUNDING_BOX_LINE_WIDTH = 2;
 const PREDICT_BOUNDING_BOX_STYLE = 'rgb(0,0,255)';
 
+function drawBoundingBoxesWidthHeight( canvas, trueBoundingBox, predictBoundingBox ) {
+	let trueBox = [ trueBoundingBox[ 0 ], trueBoundingBox[ 0 ] + trueBoundingBox[ 1 ], trueBoundingBox[ 2 ], trueBoundingBox[ 2 ] + trueBoundingBox[ 3 ] ];
+	let predBox = [ predictBoundingBox[ 0 ], predictBoundingBox[ 0 ] + predictBoundingBox[ 1 ], predictBoundingBox[ 2 ], predictBoundingBox[ 2 ] + predictBoundingBox[ 3 ] ];
+	drawBoundingBoxes( canvas, trueBox, predBox );
+}
+
 function drawBoundingBoxes(canvas, trueBoundingBox, predictBoundingBox) {
-  tf.util.assert(
-      trueBoundingBox != null && trueBoundingBox.length === 4,
-      `Expected boundingBoxArray to have length 4, ` +
-          `but got ${trueBoundingBox} instead`);
-  tf.util.assert(
-      predictBoundingBox != null && predictBoundingBox.length === 4,
-      `Expected boundingBoxArray to have length 4, ` +
-          `but got ${trueBoundingBox} instead`);
+  // tf.util.assert(
+  //     trueBoundingBox != null && trueBoundingBox.length === 4,
+  //     `Expected boundingBoxArray to have length 4, ` +
+  //         `but got ${trueBoundingBox} instead`);
+  // tf.util.assert(
+  //     predictBoundingBox != null && predictBoundingBox.length === 4,
+  //     `Expected boundingBoxArray to have length 4, ` +
+  //         `but got ${trueBoundingBox} instead`);
 
   let left = trueBoundingBox[0];
   let right = trueBoundingBox[1];

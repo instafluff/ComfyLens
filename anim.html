@@ -4,10 +4,23 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
 	<script src="web/train.js"></script>
     <script src="web/utility.js"></script>
+	<style>
+	#content {
+	    width:224px;
+	    height:224px;
+	    border: 0px solid transparent;
+		padding: 0;
+		margin: 0;
+	}
+	.rectangle {
+	    border: 1px solid #FF0000;
+	    position: absolute;
+	}
+	</style>
   </head>
 
   <body>
-	<canvas id="trainCanvas" width="224" height="224"></canvas>
+	<div id="content"><canvas id="trainCanvas" width="224" height="224"></canvas></div>
   	<canvas id="testCanvas" width="224" height="224"></canvas>
 	<script>
 
@@ -95,9 +108,9 @@
     // ];
 
     async function generateSample( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
-        let x = 0;//Math.floor( Math.random() * 50 - 25 );
-        let y = 0;//Math.floor( Math.random() * 50 - 25 );
-        let scale = 1;//Math.random() * 0.2 + 0.9;
+        let x = Math.floor( Math.random() * 50 - 25 );
+        let y = Math.floor( Math.random() * 50 - 25 );
+        let scale = Math.random() * 0.2 + 0.9;
 		await DrawImageToCanvas( canvasId, imageUrl, { x, y }, scale );
 		var canvas = document.getElementById( canvasId );
 		if( !boundingBox || boundingBox.length === 0 ) {
@@ -151,7 +164,8 @@
         ]
 		// console.log( x, y, scale, boundingBox );
 		return tf.tidy( () => {
-			const imageTensor = tf.browser.fromPixels( canvas );
+			const img = tf.browser.fromPixels( canvas ).toFloat();
+            const imageTensor = img.div( 127 ).sub( 1 );
 			const shapeClassIndicator = isObject ? 1 : 0;
 			const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
 	      return { image: imageTensor, target: targetTensor };
@@ -323,7 +337,7 @@
 		// Initial phase of transfer learning.
 	    console.log('Phase 1 of 2: initial transfer learning');
 	    await model.fit( images, targets, {
-			epochs: 300,
+			epochs: 64,
 			batchSize: 4,
 			validationSplit: 0.25,
             shuffle: true,
@@ -348,7 +362,7 @@
 
 		console.log('Phase 2 of 2: fine-tuning phase');
 	    await model.fit( images, targets, {
-	      epochs: 32,
+	      epochs: 64,
 	      batchSize: 2,
 	      validationSplit: 0.25,
           shuffle: true,
@@ -387,7 +401,7 @@
     // Improve transfer-learned model
     async function improveModel() {
         console.log( "Loading Model" );
-        const model = await tf.loadLayersModel('web/models/model.json');
+        const model = await tf.loadLayersModel('web/models/comfylens.json');
   		const { fineTuningLayers } = await buildObjectDetectionModel();
 
   		model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
@@ -402,7 +416,7 @@
   	    await model.fit( images, targets, {
   			epochs: 32,
   			batchSize: 4,
-  			validationSplit: 0.5,
+  			validationSplit: 0.25,
             shuffle: true,
   			callbacks: {
   				// onBatchEnd: ( batch, logs ) => {
@@ -428,7 +442,7 @@
   	    await model.fit( images, targets, {
   	      epochs: 64,
   	      batchSize: 4,
-  	      validationSplit: 0.5,
+  	      validationSplit: 0.25,
 		  shuffle: true,
   	      callbacks: {
                 // onBatchEnd: ( batch, logs ) => {
@@ -447,50 +461,68 @@
         for( var i = 0; i < 100; i++ ) {
     		setTimeout( async () => {
     			let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
-    			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
+    			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
     			var testImage = tf.stack( [ image ] );
     			const modelOut = await model.predict( testImage ).data();
                 console.log( modelOut );
-				var canvas = document.getElementById( "trainCanvas" );
-				drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
-				tf.dispose( [ image, target, testImage ] );
+    			setTimeout( () => {
+    				var canvas = document.getElementById( "trainCanvas" );
+    				drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+    			}, 1000 );
     		}, 5000 * ( i + 1 ) );
         }
 
-        const saveResult = await model.save( "http://localhost:52220/savemodel" );
+        const saveResult = await model.save( "downloads://comfylens" );
         console.log( saveResult );
     }
 
     // Run Saved Model
     async function runModel() {
         console.log( "Loading Model" );
-        const model = await tf.loadLayersModel('web/models/model.json');
+        // const model = await tf.loadLayersModel('web/models/comfylens.json');
+		const model = await tf.loadLayersModel('web/models/model.json');
 
-        let combinedTest = predictionImages.concat( sampleImages );
+        let combinedTest = predictionImages;//sampleImages;// predictionImages;
+		const frameskip = 2;
 
-        for( var i = 0; i < 1000; i++ ) {
-      		setTimeout( async () => {
-      			let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
-      			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
-      			var testImage = tf.stack( [ image ] );
-      			const modelOut = await model.predict( testImage ).data();
-                console.log( modelOut );
-      			setTimeout( () => {
-      				var canvas = document.getElementById( "trainCanvas" );
-      				drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
-      			}, 100 );
-      		}, 5000 * i );
+		var canvas = document.getElementById( "trainCanvas" );
+		var display = document.getElementById( "content" );
+		var element = document.createElement('div');
+		element.className = 'rectangle';
+		display.appendChild( element );
+
+        for( var i = 8000; i < combinedTest.length; i += frameskip ) {
+  			let sampleImage = combinedTest[ i ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+  			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
+  			var testImage = tf.stack( [ image ] );
+  			const modelOut = await model.predict( testImage ).data();
+              // console.log( modelOut.slice(1) );
+			let boundingBox = modelOut.slice(1);
+			// console.log( boundingBox );
+	  		element.style.width = Math.floor( boundingBox[ 1 ] - boundingBox[ 0 ] ) + 'px';
+	  		element.style.height = Math.floor( boundingBox[ 3 ] - boundingBox[ 2 ] ) + 'px';
+	  		element.style.left = Math.floor( boundingBox[ 0 ] + display.offsetLeft ) + 'px';
+	  		element.style.top = Math.floor( boundingBox[ 2 ] + display.offsetTop ) + 'px';
+			// drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+			tf.dispose( [ image, target, testImage ] );
+			await sleep( 1000 / 60 * frameskip );
         }
     }
 
+	async function sleep( time ) {
+		return new Promise( ( resolve, reject ) => {
+			setTimeout( resolve, time );
+		});
+	}
+
     (async () => {
 		sampleImages = await fetch( "/samples" ).then( r => r.json() );
-		predictionImages = await fetch( "/untagged" ).then( r => r.json() );
+		predictionImages = await fetch( "/all" ).then( r => r.json() );
 		predictionImages = predictionImages.map( x => ({ image: x, box: [ 0, 0, 0, 0 ] } ) );
         // await trainCustom();
         // await trainModel();
-        await improveModel();
-        // await runModel();
+        // await improveModel();
+        await runModel();
     })();
     </script>
   </body>

@@ -1,0 +1,198 @@
+<html>
+  <head>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
+    <script src="web/utility.js"></script>
+	<style>
+	#content {
+	    width:224px;
+	    height:224px;
+	    border: 0px solid transparent;
+		padding: 0;
+		margin: 0;
+	}
+	.rectangle {
+	    border: 1px solid #FF0000;
+	    position: absolute;
+	}
+	</style>
+  </head>
+
+  <body>
+	<div id="content"><canvas id="tagCanvas" width="224" height="224"></canvas></div>
+	<button id="save">Save</button>
+	<button id="missinglink">No Link</button>
+	<button id="skip">Skip</button>
+	<script>
+
+	// TODO: Add "Missing Link" button to tag no-link
+	// TODO: Suggest Bounding Box
+	// TODO: Hotkey for these
+
+	var imageFile = "";
+	var boundingBox = [];
+	var model = null;
+	var element = null;
+	var hasClicked = false;
+
+    (async () => {
+		initDraw( document.getElementById( 'content' ) );
+		console.log( "Loading Model" );
+        // model = await tf.loadLayersModel('web/models/comfylens.json');
+		model = await tf.loadLayersModel('web/models/model.json');
+
+		// await DrawImageToCanvas( "tagCanvas", `web/sample/${imageFile}` );
+		await setupImage();
+    })();
+
+	async function setupImage() {
+		imageFile = await fetch( "/getimage" ).then( r => r.text() );
+	    // Run Trained Model and Adjust Box!
+		const { image, target } = await generateSamplePlus( "tagCanvas", `web/sample/${imageFile}`, true, [ 0, 0, 0, 0 ] );
+		var testImage = tf.stack( [ image ] );
+		const modelOut = await model.predict( testImage ).data();
+		  // console.log( modelOut.slice(1) );
+		var canvas = document.getElementById( "content" );
+		// drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+		boundingBox = Array.from( modelOut.slice(1).map( x => Math.floor( x ) ) );
+
+		hasClicked = false;
+		if( element ) {
+			canvas.removeChild(element);
+			element = null;
+		}
+		element = document.createElement('div');
+		element.className = 'rectangle';
+		element.style.width = Math.floor( boundingBox[ 1 ] - boundingBox[ 0 ] ) + 'px';
+		element.style.height = Math.floor( boundingBox[ 3 ] - boundingBox[ 2 ] ) + 'px';
+		element.style.left = Math.floor( boundingBox[ 0 ] + canvas.offsetLeft ) + 'px';
+		element.style.top = Math.floor( boundingBox[ 2 ] + canvas.offsetTop ) + 'px';
+		canvas.appendChild( element );
+
+		// console.log( boundingBox );
+	}
+
+	async function generateSamplePlus( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
+        let x = 0;//Math.floor( Math.random() * 50 - 25 );
+        let y = 0;//Math.floor( Math.random() * 50 - 25 );
+        let scale = 1;//Math.random() * 0.2 + 0.9;
+		await DrawImageToCanvas( canvasId, imageUrl, { x, y }, scale );
+		var canvas = document.getElementById( canvasId );
+		if( !boundingBox || boundingBox.length === 0 ) {
+			boundingBox = [ 0, canvas.width, 0, canvas.height ];
+		}
+        boundingBox = [
+            Math.floor( scale * ( boundingBox[ 0 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 1 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 2 ] - y ) ),
+            Math.floor( scale * ( boundingBox[ 3 ] - y ) ),
+        ]
+		// console.log( x, y, scale, boundingBox );
+		return tf.tidy( () => {
+			const imageTensor = tf.browser.fromPixels( canvas );
+			const shapeClassIndicator = isObject ? 1 : 0;
+			const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
+	      return { image: imageTensor, target: targetTensor };
+	    });
+	}
+
+	function initDraw(canvas) {
+	    function setMousePosition(e) {
+	        var ev = e || window.event; //Moz || IE
+	        if (ev.pageX) { //Moz
+	            mouse.x = ev.pageX + window.pageXOffset;
+	            mouse.y = ev.pageY + window.pageYOffset;
+	        } else if (ev.clientX) { //IE
+	            mouse.x = ev.clientX + document.body.scrollLeft;
+	            mouse.y = ev.clientY + document.body.scrollTop;
+	        }
+	    };
+
+	    var mouse = {
+	        x: 0,
+	        y: 0,
+	        startX: 0,
+	        startY: 0
+	    };
+
+	    canvas.onmousemove = function (e) {
+	        setMousePosition(e);
+	        if( hasClicked && element !== null) {
+	            element.style.width = Math.abs(mouse.x - mouse.startX) + 'px';
+	            element.style.height = Math.abs(mouse.y - mouse.startY) + 'px';
+	            element.style.left = (mouse.x - mouse.startX < 0) ? mouse.x + 'px' : mouse.startX + 'px';
+	            element.style.top = (mouse.y - mouse.startY < 0) ? mouse.y + 'px' : mouse.startY + 'px';
+	        }
+	    }
+
+	    canvas.onclick = async function (e) {
+			if( !hasClicked ) {
+				hasClicked = true;
+				canvas.removeChild(element);
+	            element = null;
+			}
+	        if (element !== null) {
+				let tagCanvas = document.getElementById( "tagCanvas" );
+				console.log( tagCanvas.offsetLeft, tagCanvas.offsetTop );
+				boundingBox = [
+					parseInt( element.style.left ) - tagCanvas.offsetLeft,
+					parseInt( element.style.left ) + parseInt( element.style.width ) - tagCanvas.offsetLeft,
+					parseInt( element.style.top ) - tagCanvas.offsetTop,
+					parseInt( element.style.top ) + parseInt( element.style.height ) - tagCanvas.offsetTop
+				];
+				console.log( boundingBox );
+				drawBoundingBoxes( tagCanvas, boundingBox, boundingBox );
+				// console.log( result );
+				console.log( "TAGGED!" );
+				canvas.removeChild(element);
+	            element = null;
+	            canvas.style.cursor = "default";
+	        }
+			else {
+	            mouse.startX = mouse.x;
+	            mouse.startY = mouse.y;
+	            element = document.createElement('div');
+	            element.className = 'rectangle'
+	            element.style.left = mouse.x + 'px';
+	            element.style.top = mouse.y + 'px';
+	            canvas.appendChild(element)
+	            canvas.style.cursor = "crosshair";
+	        }
+	    }
+	}
+
+	document.getElementById("save").onclick = async function( e ) {
+		let result = await fetch( "/tagimage", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify( {
+				image: imageFile,
+				box: boundingBox
+			} )
+		} ).then( r => r.json() );
+		setupImage();
+	};
+
+	document.getElementById("missinglink").onclick = async function( e ) {
+		let result = await fetch( "/tagimage", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify( {
+				image: imageFile,
+				box: [ 0, 0, 0, 0 ],
+				noLink: true
+			} )
+		} ).then( r => r.json() );
+		setupImage();
+	};
+
+	document.getElementById("skip").onclick = async function( e ) {
+		setupImage();
+	};
+    </script>
+  </body>
+</html>

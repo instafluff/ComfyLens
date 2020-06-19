@@ -151,7 +151,12 @@
         ]
 		// console.log( x, y, scale, boundingBox );
 		return tf.tidy( () => {
-			const imageTensor = tf.browser.fromPixels( canvas );
+            const img = tf.browser.fromPixels( canvas ).toFloat();
+            const offset = tf.scalar( 127.5 );
+            // Normalize the image from [0, 255] to [-1, 1].
+            const imageTensor = img.sub( offset ).div( offset );
+
+			// const imageTensor = tf.browser.fromPixels( canvas );
 			const shapeClassIndicator = isObject ? 1 : 0;
 			const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
 	      return { image: imageTensor, target: targetTensor };
@@ -162,7 +167,7 @@
 		const imageTensors = [];
 		const targetTensors = [];
 		for( var i = 0; i < numSamples; i++ ) {
-			var img = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];
+			var img = sampleImages[ i ];
 			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${img.image}`, !!img.noLink, img.box );
 			imageTensors.push( image );
 			targetTensors.push( target );
@@ -290,8 +295,9 @@
     // Transfer-Learned Model
 	async function trainModel() {
 		const { model, fineTuningLayers } = await buildObjectDetectionModel();
-		model.compile( { loss: customLossFunction, optimizer: tf.train.rmsprop( 5e-3 ) } );
-        // model.compile( { loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+		// model.compile( { loss: customLossFunction, optimizer: tf.train.rmsprop( 5e-3 ) } );
+        // model.compile( { loss: customLossFunction, optimizer: "adam" } );// tf.train.adam( 0.001 )});
+		model.compile( { loss: "meanSquaredError", optimizer: "adam" } );// tf.train.adam( 0.001 )});
 		model.summary();
 
         // for( var i = 0; i < 100; i++ ) {
@@ -308,7 +314,7 @@
         // }
         // return;
 
-		const { images, targets } = await createTrainingDataPlus( 200 );
+		const { images, targets } = await createTrainingDataPlus( 300 );
         //
         // var test = 9;
         // let data = await generateSample( "trainCanvas", `web/sample/${sampleImages[ test ].image}`, true, sampleImages[ test ].box );
@@ -323,8 +329,8 @@
 		// Initial phase of transfer learning.
 	    console.log('Phase 1 of 2: initial transfer learning');
 	    await model.fit( images, targets, {
-			epochs: 300,
-			batchSize: 4,
+			epochs: 100,
+			batchSize: 16,
 			validationSplit: 0.25,
             shuffle: true,
 			callbacks: {
@@ -337,30 +343,30 @@
 			}
 	    });
 
-		// Fine-tuning phase of transfer learning.
-	    // Unfreeze layers for fine-tuning.
-	    for( const layer of fineTuningLayers ) {
-            layer.trainable = true;
-	    }
-	    model.compile( { loss: customLossFunction, optimizer: tf.train.rmsprop( 2e-3 ) } );
+		// // Fine-tuning phase of transfer learning.
+	    // // Unfreeze layers for fine-tuning.
+	    // for( const layer of fineTuningLayers ) {
+        //     layer.trainable = true;
+	    // }
+	    // // model.compile( { loss: customLossFunction, optimizer: tf.train.rmsprop( 2e-3 ) } );
         // model.compile( { loss: customLossFunction, optimizer: tf.train.adam( 0.0005 ) } );
-	    // model.summary();
-
-		console.log('Phase 2 of 2: fine-tuning phase');
-	    await model.fit( images, targets, {
-	      epochs: 32,
-	      batchSize: 2,
-	      validationSplit: 0.25,
-          shuffle: true,
-	      callbacks: {
-              // onBatchEnd: ( batch, logs ) => {
-              //     console.log( "Batch #", batch, logs );
-              // },
-			  onEpochEnd: ( epoch, logs ) => {
-                  console.log( "Epoch #", epoch, logs );
-			  }
-		  }
-	    });
+	    // // model.summary();
+		//
+		// console.log('Phase 2 of 2: fine-tuning phase');
+	    // await model.fit( images, targets, {
+	    //   epochs: 32,
+	    //   batchSize: 2,
+	    //   validationSplit: 0.5,
+        //   shuffle: true,
+	    //   callbacks: {
+        //       // onBatchEnd: ( batch, logs ) => {
+        //       //     console.log( "Batch #", batch, logs );
+        //       // },
+		// 	  onEpochEnd: ( epoch, logs ) => {
+        //           console.log( "Epoch #", epoch, logs );
+		// 	  }
+		//   }
+	    // });
 
 		console.log( "DONE!" );
 
@@ -369,33 +375,34 @@
         for( var i = 0; i < 100; i++ ) {
     		setTimeout( async () => {
     			let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
-    			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, true, sampleImage.box );
+    			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
     			var testImage = tf.stack( [ image ] );
     			const modelOut = await model.predict( testImage ).data();
                 console.log( modelOut );
-    			setTimeout( () => {
-    				var canvas = document.getElementById( "trainCanvas" );
-    				drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
-    			}, 1000 );
+				var canvas = document.getElementById( "trainCanvas" );
+				drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+				tf.dispose( [ image, target, testImage ] );
     		}, 5000 * ( i + 1 ) );
         }
 
-        const saveResult = await model.save( "downloads://comfylens" );
+        const saveResult = await model.save( "http://localhost:52220/savemodel" );
         console.log( saveResult );
+        // const saveResult = await model.save( "downloads://comfylens" );
+        // console.log( saveResult );
   	  }
 
     // Improve transfer-learned model
     async function improveModel() {
         console.log( "Loading Model" );
-        const model = await tf.loadLayersModel('web/models/model.json');
-  		const { fineTuningLayers } = await buildObjectDetectionModel();
+        const prevModel = await tf.loadLayersModel( 'web/models/model.json' );
+  		const { model, fineTuningLayers } = await buildObjectDetectionModel( prevModel );
 
   		model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
         // model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
         // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(5e-3)});
   		model.summary();
 
-  		let { images, targets } = await createTrainingDataPlus( 200 );
+  		let { images, targets } = await createTrainingDataPlus( 500 );
 
   		// Initial phase of transfer learning.
   	    console.log('Additional transfer learning');
@@ -414,6 +421,66 @@
   			}
   	    });
 
+  		// // Fine-tuning phase of transfer learning.
+  	    // // Unfreeze layers for fine-tuning.
+  	    // for( const layer of fineTuningLayers ) {
+        //       layer.trainable = true;
+  	    // }
+  	    // model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(2e-3)});
+        //   // model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+        //   // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(2e-3)});
+  	    // // model.summary();
+		//
+  		// console.log('Phase 2 of 2: fine-tuning phase');
+  	    // await model.fit( images, targets, {
+  	    //   epochs: 64,
+  	    //   batchSize: 4,
+  	    //   validationSplit: 0.5,
+		//   shuffle: true,
+  	    //   callbacks: {
+        //         // onBatchEnd: ( batch, logs ) => {
+        //         //     console.log( "Batch #", batch, logs );
+        //         // },
+  		// 	  onEpochEnd: ( epoch, logs ) => {
+        //             console.log( "Epoch #", epoch, logs );
+  		// 	  }
+  		//   }
+  	    // });
+
+  		console.log( "DONE!" );
+
+		// let combinedTest = predictionImages.concat( sampleImages );
+		//
+        // for( var i = 0; i < 100; i++ ) {
+    	// 	setTimeout( async () => {
+    	// 		let sampleImage = combinedTest[ Math.floor( Math.random() * combinedTest.length ) ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+    	// 		const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
+    	// 		var testImage = tf.stack( [ image ] );
+    	// 		const modelOut = await model.predict( testImage ).data();
+        //         console.log( modelOut );
+		// 		var canvas = document.getElementById( "trainCanvas" );
+		// 		drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+		// 		tf.dispose( [ image, target, testImage ] );
+    	// 	}, 5000 * ( i + 1 ) );
+        // }
+
+        const saveResult = await model.save( "http://localhost:52220/savemodel" );
+        console.log( saveResult );
+    }
+
+	// Improve transfer-learned model
+    async function finetuneModel() {
+        console.log( "Loading Model" );
+        const prevModel = await tf.loadLayersModel( 'web/models/model.json' );
+  		const { model, fineTuningLayers } = await buildObjectDetectionModel( prevModel );
+
+  		model.compile({loss: customLossFunction, optimizer: tf.train.rmsprop(5e-3)});
+        // model.compile({loss: customLossFunction, optimizer: tf.train.adam( 0.001 )});
+        // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(5e-3)});
+  		model.summary();
+
+  		let { images, targets } = await createTrainingDataPlus( 500 );
+
   		// Fine-tuning phase of transfer learning.
   	    // Unfreeze layers for fine-tuning.
   	    for( const layer of fineTuningLayers ) {
@@ -424,7 +491,7 @@
           // model.compile({loss: 'meanSquaredError', optimizer: tf.train.rmsprop(2e-3)});
   	    // model.summary();
 
-  		console.log('Phase 2 of 2: fine-tuning phase');
+  		console.log('Fine-tuning phase');
   	    await model.fit( images, targets, {
   	      epochs: 64,
   	      batchSize: 4,
@@ -484,13 +551,16 @@
     }
 
     (async () => {
-		sampleImages = await fetch( "/samples" ).then( r => r.json() );
+		// sampleImages = ( await fetch( "/samples" ).then( r => r.json() ) ).filter( x => !x.noLink ).sort( () => 0.5 - Math.random() );
+		sampleImages = ( await fetch( "/samples" ).then( r => r.json() ) ).sort( () => 0.5 - Math.random() );
 		predictionImages = await fetch( "/untagged" ).then( r => r.json() );
 		predictionImages = predictionImages.map( x => ({ image: x, box: [ 0, 0, 0, 0 ] } ) );
         // await trainCustom();
-        // await trainModel();
-        await improveModel();
+        await trainModel();
+        // await improveModel();
+		// await finetuneModel();
         // await runModel();
+		// location.reload();
     })();
     </script>
   </body>

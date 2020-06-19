@@ -1,0 +1,121 @@
+<html>
+  <head>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs/dist/tf.min.js"> </script>
+	<script src="web/train.js"></script>
+    <script src="web/utility.js"></script>
+	<style>
+	#content {
+	    width:224px;
+	    height:224px;
+	    border: 0px solid transparent;
+		padding: 0;
+		margin: 0;
+	}
+	.rectangle {
+	    border: 1px solid #FF0000;
+	    position: absolute;
+	}
+	</style>
+  </head>
+
+  <body>
+	<div id="content"><canvas id="trainCanvas" width="224" height="224"></canvas></div>
+  	<canvas id="testCanvas" width="224" height="224"></canvas>
+	<script>
+
+	var sampleImages = null;
+	var predictionImages = null;
+
+	async function generateSamplePlus( canvasId, imageUrl, isObject = true, boundingBox = [] ) {
+        let x = 0;//Math.floor( Math.random() * 50 - 25 );
+        let y = 0;//Math.floor( Math.random() * 50 - 25 );
+        let scale = 1;//Math.random() * 0.2 + 0.9;
+		await DrawImageToCanvas( canvasId, imageUrl, { x, y }, scale );
+		var canvas = document.getElementById( canvasId );
+		if( !boundingBox || boundingBox.length === 0 ) {
+			boundingBox = [ 0, canvas.width, 0, canvas.height ];
+		}
+        boundingBox = [
+            Math.floor( scale * ( boundingBox[ 0 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 1 ] - x ) ),
+            Math.floor( scale * ( boundingBox[ 2 ] - y ) ),
+            Math.floor( scale * ( boundingBox[ 3 ] - y ) ),
+        ]
+		// console.log( x, y, scale, boundingBox );
+		return tf.tidy( () => {
+			const img = tf.browser.fromPixels( canvas ).toFloat();
+            const imageTensor = img.div( 127 ).sub( 1 );
+			const shapeClassIndicator = isObject ? 1 : 0;
+			// const targetTensor = tf.tensor1d( [ shapeClassIndicator ].concat( boundingBox ) );
+			const targetTensor = tf.tensor1d( boundingBox );
+	      return { image: imageTensor, target: targetTensor };
+	    });
+	}
+
+	async function createTrainingDataPlus( numSamples = 100 ) {
+		const imageTensors = [];
+		const targetTensors = [];
+		for( var i = 0; i < numSamples; i++ ) {
+			var img = sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];
+			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${img.image}`, !!img.noLink, img.box );
+			imageTensors.push( image );
+			targetTensors.push( target );
+		}
+		const images = tf.stack( imageTensors );
+		const targets = tf.stack( targetTensors );
+		tf.dispose( [ imageTensors, targetTensors ] );
+		return { images, targets };
+	}
+
+    // Run Saved Model
+    async function runModel() {
+        console.log( "Loading Model" );
+        // const model = await tf.loadLayersModel('web/models/comfylens.json');
+		const model = await tf.loadLayersModel('web/models/model.json');
+
+        let combinedTest = predictionImages;//sampleImages;// predictionImages;
+		const frameskip = 2;
+
+		var canvas = document.getElementById( "trainCanvas" );
+		var display = document.getElementById( "content" );
+		var element = document.createElement('div');
+		element.className = 'rectangle';
+		display.appendChild( element );
+
+        for( var i = 8000; i < combinedTest.length; i += frameskip ) {
+  			let sampleImage = combinedTest[ i ];//sampleImages[ Math.floor( Math.random() * sampleImages.length ) ];// predictionImages[ 0 ];// sampleImages[ 8 ];
+  			const { image, target } = await generateSamplePlus( "trainCanvas", `web/sample/${sampleImage.image}`, !!sampleImage.noLink, sampleImage.box );
+  			var testImage = tf.stack( [ image ] );
+  			const modelOut = await model.predict( testImage ).data();
+              // console.log( modelOut.slice(1) );
+			let boundingBox = modelOut;
+			// console.log( boundingBox );
+	  		element.style.width = Math.floor( boundingBox[ 1 ] - boundingBox[ 0 ] ) + 'px';
+	  		element.style.height = Math.floor( boundingBox[ 3 ] - boundingBox[ 2 ] ) + 'px';
+	  		element.style.left = Math.floor( boundingBox[ 0 ] + display.offsetLeft ) + 'px';
+	  		element.style.top = Math.floor( boundingBox[ 2 ] + display.offsetTop ) + 'px';
+			// drawBoundingBoxes( canvas, target.arraySync().slice(1), modelOut.slice(1) );
+			tf.dispose( [ image, target, testImage ] );
+			await sleep( 1000 / 60 * frameskip );
+        }
+    }
+
+	async function sleep( time ) {
+		return new Promise( ( resolve, reject ) => {
+			setTimeout( resolve, time );
+		});
+	}
+
+    (async () => {
+		sampleImages = await fetch( "/samples" ).then( r => r.json() );
+		predictionImages = await fetch( "/all" ).then( r => r.json() );
+		predictionImages = predictionImages.map( x => ({ image: x, box: [ 0, 0, 0, 0 ] } ) );
+        // await trainCustom();
+        // await trainModel();
+        // await improveModel();
+        await runModel();
+    })();
+    </script>
+  </body>
+</html>
